@@ -7,6 +7,7 @@ import json
 from urllib.request import urlopen
 
 from skyfield.api import load, wgs84, Topos
+from skyfield.iokit import parse_tle_file
 from skyfield.framelib import itrs
 from datetime import timedelta
 
@@ -87,11 +88,24 @@ def check_visibility(sat, t, ground_lat, ground_lon):
 
 @st.cache_resource
 def load_satellites():
+    """Downloads and parses satellite TLE data without local file caching."""
     url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
-    return load.tle_file(url)
+    try:
+        # Bypass Skyfield's file-based caching/downloading
+        with urlopen(url) as response:
+            # Read lines and decode to string
+            lines = [line.decode('utf-8') for line in response.readlines()]
+            
+        ts = load.timescale(builtin=True)
+        satellites = list(parse_tle_file(lines, ts))
+        return satellites
+    except Exception as e:
+        st.error(f"Error loading TLE data: {e}")
+        return []
 
 @st.cache_data
 def get_geometry():
+    """Generates Earth mesh and fetches coastline data."""
     phi = np.linspace(0, 2 * np.pi, 100)
     theta = np.linspace(0, np.pi, 100)
     phi, theta = np.meshgrid(phi, theta)
@@ -122,7 +136,9 @@ def get_geometry():
 
 @st.cache_data
 def process_positions(_satellites):
-    ts = load.timescale()
+    """Calculates current positions for all satellites."""
+    # Use builtin=True to avoid download errors on cloud
+    ts = load.timescale(builtin=True)
     t = ts.now()
     data = []
     for i, sat in enumerate(_satellites):
@@ -201,7 +217,8 @@ if selected_name:
     fx, fy, fz = get_footprint(row['Lat'], row['Lon'], row['Alt'])
     tx, ty, tz = [], [], []
     if show_traj:
-        ts = load.timescale()
+        # Ensure we use builtin timescale for trajectory too
+        ts = load.timescale(builtin=True)
         tx, ty, tz = get_trajectory(sat_obj, ts, t_now)
         
     # 3. Visibility
@@ -273,6 +290,7 @@ if selected_name:
         clickmode='event+select', # Allow clicking points
         scene=dict(
             aspectmode='manual', aspectratio=dict(x=1, y=1, z=1),
+            # Expanded to +/- 50,000 km to include Geostationary Orbit (36,000 km alt)
             xaxis=dict(visible=False, range=[-50000, 50000]), 
             yaxis=dict(visible=False, range=[-50000, 50000]), 
             zaxis=dict(visible=False, range=[-50000, 50000]),
