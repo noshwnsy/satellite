@@ -110,7 +110,7 @@ def load_satellites():
         # Bypass Skyfield's file-based caching/downloading
         with urlopen(url, timeout=10) as response:
             # Read lines and decode to string
-            lines = [line.decode('utf-8') for line in response.readlines()]
+            lines = [line for line in response.readlines()]
             
         ts = load.timescale(builtin=True)
         satellites = list(parse_tle_file(lines, ts))
@@ -119,7 +119,8 @@ def load_satellites():
         st.warning(f"⚠️ Network issue detected ({e}). Switching to OFFLINE mode with sample data.")
         # Fallback
         ts = load.timescale(builtin=True)
-        lines = FALLBACK_TLE.strip().split('\n')
+        # Use splitlines() to safely handle the string independent of platform
+        lines = [line.encode('ascii') for line in FALLBACK_TLE.strip().splitlines()]
         satellites = list(parse_tle_file(lines, ts))
         return satellites
 
@@ -183,8 +184,12 @@ def process_positions(_satellites):
 
 with st.spinner("Initializing Satellite Data..."):
     satellites = load_satellites()
+    
+    # Debug Info to verify loading
+    st.success(f"DEBUG: Loaded {len(satellites)} satellites.")
+    
     if not satellites:
-        st.error("⚠️ Failed to load satellite data. The CelesTrak server might be unreachable or the download failed. Please reload the page.")
+        st.error("⚠️ Failed to load ANY data (online or offline).")
         st.stop()
         
     earth_mesh, coastlines = get_geometry()
