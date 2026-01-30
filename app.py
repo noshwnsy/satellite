@@ -111,13 +111,16 @@ def load_satellites():
     try:
         # Try downloading live data
         with urlopen(url, timeout=10) as response:
+            # Read lines directly as bytes
             lines = [line for line in response.readlines()]
     except Exception as e:
         st.warning(f"⚠️ Network issue detected ({e}). Switching to OFFLINE mode with sample data.")
         # Fallback to local data
-        lines = FALLBACK_TLE.strip().splitlines()
+        # Encode strings to bytes to match what Skyfield expects
+        lines = [line.encode('ascii') for line in FALLBACK_TLE.strip().splitlines()]
 
-    # ROBUSTNESS CHECK: Ensure all lines are bytes
+    # ROBUSTNESS CHECK: Ensure all lines are bytes before parsing
+    # This handles any edge case where data might be strings
     if lines and isinstance(lines[0], str):
         lines = [l.encode('ascii') for l in lines]
         
@@ -343,7 +346,7 @@ if selected_name:
     
     # Render with Event Capture
     # selection_mode='points' ensures we get the clicked point info
-    event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
+    event = st.plotly_chart(fig, width="stretch", on_select="rerun", selection_mode="points")
     
     # Handle Click Event
     if event and event.selection and event.selection.points:
