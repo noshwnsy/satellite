@@ -168,7 +168,6 @@ def get_geometry():
     if HAS_PILLOW:
         img_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Blue_Marble_2002.png/480px-Blue_Marble_2002.png"
         try:
-            # Add headers to mimic a browser
             req = Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urlopen(req, timeout=10) as response:
                 img = Image.open(response)
@@ -365,7 +364,8 @@ if selected_name:
     m2.metric("Station Visibility", "VISIBLE" if is_visible else "No Signal", f"{el_deg:.1f}° El")
     m3.metric("Nearest Neighbor", nearest_sat['Name'], f"{min_dist_km:.1f} km away")
     
-    event = st.plotly_chart(fig, width="stretch", on_select="rerun", selection_mode="points")
+    # KEY ADDED HERE to ensure chart state persists
+    event = st.plotly_chart(fig, width="stretch", on_select="rerun", selection_mode="points", key="main_map")
     
     if event and event.selection and event.selection.points:
         point = event.selection.points[0]
@@ -374,3 +374,7 @@ if selected_name:
             if clicked != st.session_state.selected_sat_name:
                 st.session_state.selected_sat_name = clicked
                 st.rerun()
+
+    # Debug Expander
+    with st.expander("Debug: Raw Event Data"):
+        st.write(event)
