@@ -6,7 +6,7 @@ import plotly.express as px
 import json
 from urllib.request import urlopen
 
-from skyfield.api import load, wgs84, Topos
+from skyfield.api import load, wgs84
 from skyfield.iokit import parse_tle_file
 from skyfield.framelib import itrs
 from datetime import timedelta
@@ -106,23 +106,24 @@ def check_visibility(sat, t, ground_lat, ground_lon):
 def load_satellites():
     """Downloads and parses satellite TLE data without local file caching."""
     url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
+    lines = []
+    
     try:
-        # Bypass Skyfield's file-based caching/downloading
+        # Try downloading live data
         with urlopen(url, timeout=10) as response:
-            # Read lines and decode to string
             lines = [line for line in response.readlines()]
-            
-        ts = load.timescale(builtin=True)
-        satellites = list(parse_tle_file(lines, ts))
-        return satellites
     except Exception as e:
         st.warning(f"⚠️ Network issue detected ({e}). Switching to OFFLINE mode with sample data.")
-        # Fallback
-        ts = load.timescale(builtin=True)
-        # Use splitlines() to safely handle the string independent of platform
-        lines = [line.encode('ascii') for line in FALLBACK_TLE.strip().splitlines()]
-        satellites = list(parse_tle_file(lines, ts))
-        return satellites
+        # Fallback to local data
+        lines = FALLBACK_TLE.strip().splitlines()
+
+    # ROBUSTNESS CHECK: Ensure all lines are bytes
+    if lines and isinstance(lines[0], str):
+        lines = [l.encode('ascii') for l in lines]
+        
+    ts = load.timescale(builtin=True)
+    satellites = list(parse_tle_file(lines, ts))
+    return satellites
 
 @st.cache_data
 def get_geometry():
