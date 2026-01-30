@@ -4,7 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import json
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 
 from skyfield.api import load, wgs84
 from skyfield.iokit import parse_tle_file
@@ -109,10 +109,17 @@ def load_satellites():
     lines = []
     
     try:
-        # Try downloading live data
-        with urlopen(url, timeout=10) as response:
+        # Add headers to mimic a browser
+        req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        
+        # Try downloading live data with increased timeout
+        with urlopen(req, timeout=30) as response:
             # Read lines directly as bytes
             lines = [line for line in response.readlines()]
+            
+        if not lines:
+            raise ValueError("Empty data received")
+            
     except Exception as e:
         st.warning(f"⚠️ Network issue detected ({e}). Switching to OFFLINE mode with sample data.")
         # Fallback to local data
