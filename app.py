@@ -113,10 +113,10 @@ def check_visibility(sat, t, ground_lat, ground_lon):
 @st.cache_resource
 def load_satellites():
     """
-    Downloads and parses satellite TLE data with priority:
-    1. Local 'active.txt' (Binary read)
-    2. CelesTrak URL (Live download)
-    3. Fallback String (Hardcoded)
+    Loads satellite data with a priority system:
+    1. Local 'active.txt' file (Fastest, works in Cloud)
+    2. CelesTrak URL (Live, requires internet)
+    3. Fallback String (Emergency only)
     """
     lines = []
     source = "Unknown"
@@ -139,14 +139,22 @@ def load_satellites():
                 lines = [line for line in response.readlines()]
             source = "CelesTrak (Live)"
         except Exception as e:
-            st.warning(f"⚠️ Network issue detected ({e}). Switching to OFFLINE mode.")
-            lines = [line.encode('ascii') for line in FALLBACK_TLE.strip().splitlines()]
-            source = "Fallback Data"
+            st.warning(f"⚠️ Could not connect to CelesTrak: {e}")
 
-    # Robustness Check: Ensure bytes
-    if lines and isinstance(lines[0], str):
-        lines = [l.encode('ascii') for l in lines]
+    # 3. Use Fallback
+    if not lines:
+        source = "Emergency Fallback"
+        lines = [line.encode('ascii') for line in FALLBACK_TLE.strip().splitlines()]
+
+    # Final Validation
+    if not lines or len(lines) < 3:
+        st.error("❌ No valid TLE data found.")
+        return [], "None"
         
+    # Ensure binary format for Skyfield
+    if isinstance(lines[0], str):
+        lines = [l.encode('ascii') for l in lines]
+
     ts = load.timescale(builtin=True)
     satellites = list(parse_tle_file(lines, ts))
     return satellites, source
@@ -316,7 +324,7 @@ if selected_name:
         ))
 
     # SAFE CHECK FOR COASTLINES to avoid Numpy array ambiguity
-    if coastlines[0] and len(coastlines[0]) > 0: 
+    if len(coastlines[0]) > 0: 
         fig.add_trace(go.Scatter3d(x=coastlines[0], y=coastlines[1], z=coastlines[2], 
             mode='lines', line=dict(color='cyan', width=2), hoverinfo='skip', name='Coasts'))
     
