@@ -18,6 +18,22 @@ st.title("🛰️ Satellite Tracker Pro: Orbit, Visibility & Proximity")
 # --- Constants ---
 R_EARTH = 6371 # Earth radius in km
 
+# Backup TLE data in case CelesTrak is unreachable
+FALLBACK_TLE = """
+ISS (ZARYA)
+1 25544U 98067A   24017.50000000  .00016717  00000+0  30693-3 0  9993
+2 25544  51.6416 280.6231 0005697 325.7688 154.5427 15.49678367491472
+HST
+1 20580U 90037B   24017.50000000  .00001500  00000+0  10000-3 0  9991
+2 20580  28.4699 265.1234 0002500 100.0000 260.0000 15.09000000  1000
+GPS BIIA-10 (PRN 32)
+1 20959U 90103A   24017.50000000 -.00000050  00000+0  00000+0 0  9995
+2 20959  54.8500 100.0000 0150000  45.0000 315.0000  2.00565432 10000
+STARLINK-1007
+1 44713U 19074A   24017.50000000  .00000678  00000+0  67856-4 0  9995
+2 44713  53.0543 178.9876 0001423  87.9752 272.1462 15.06394628230052
+"""
+
 # --- Helper Functions ---
 
 def get_category(name):
@@ -92,7 +108,7 @@ def load_satellites():
     url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
     try:
         # Bypass Skyfield's file-based caching/downloading
-        with urlopen(url) as response:
+        with urlopen(url, timeout=10) as response:
             # Read lines and decode to string
             lines = [line.decode('utf-8') for line in response.readlines()]
             
@@ -100,8 +116,12 @@ def load_satellites():
         satellites = list(parse_tle_file(lines, ts))
         return satellites
     except Exception as e:
-        st.error(f"Error loading TLE data: {e}")
-        return []
+        st.warning(f"⚠️ Network issue detected ({e}). Switching to OFFLINE mode with sample data.")
+        # Fallback
+        ts = load.timescale(builtin=True)
+        lines = FALLBACK_TLE.strip().split('\n')
+        satellites = list(parse_tle_file(lines, ts))
+        return satellites
 
 @st.cache_data
 def get_geometry():
@@ -116,7 +136,7 @@ def get_geometry():
     coast_url = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_coastline.geojson"
     xc, yc, zc = [], [], []
     try:
-        with urlopen(coast_url) as response:
+        with urlopen(coast_url, timeout=5) as response:
             coastlines = json.load(response)
         for feature in coastlines['features']:
             coords = feature['geometry']['coordinates']
