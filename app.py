@@ -163,8 +163,16 @@ def process_positions(_satellites):
 
 with st.spinner("Initializing Satellite Data..."):
     satellites = load_satellites()
+    if not satellites:
+        st.error("⚠️ Failed to load satellite data. The CelesTrak server might be unreachable or the download failed. Please reload the page.")
+        st.stop()
+        
     earth_mesh, coastlines = get_geometry()
     df, t_now = process_positions(satellites)
+
+if df.empty:
+    st.warning("No satellites could be processed. Please check data source.")
+    st.stop()
 
 # --- Sidebar Controls ---
 
