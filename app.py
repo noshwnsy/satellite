@@ -168,6 +168,7 @@ def get_geometry():
     if HAS_PILLOW:
         img_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Blue_Marble_2002.png/480px-Blue_Marble_2002.png"
         try:
+            # Add headers to mimic a browser
             req = Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
             with urlopen(req, timeout=10) as response:
                 img = Image.open(response)
@@ -315,7 +316,8 @@ if selected_name:
             lighting=dict(ambient=0.6, diffuse=0.5, roughness=0.1)
         ))
 
-    if coastlines[0]: 
+    # SAFE CHECK FOR COASTLINES to avoid Numpy array ambiguity
+    if coastlines[0] and len(coastlines[0]) > 0: 
         fig.add_trace(go.Scatter3d(x=coastlines[0], y=coastlines[1], z=coastlines[2], 
             mode='lines', line=dict(color='cyan', width=2), hoverinfo='skip', name='Coasts'))
     
