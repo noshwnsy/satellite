@@ -6,7 +6,13 @@ import plotly.express as px
 import json
 import os
 from urllib.request import urlopen, Request
-from PIL import Image
+
+# Try importing Pillow, handle if missing
+try:
+    from PIL import Image
+    HAS_PILLOW = True
+except ImportError:
+    HAS_PILLOW = False
 
 from skyfield.api import load, wgs84
 from skyfield.iokit import parse_tle_file
@@ -25,6 +31,12 @@ FALLBACK_TLE = """
 ISS (ZARYA)
 1 25544U 98067A   24017.50000000  .00016717  00000+0  30693-3 0  9993
 2 25544  51.6416 280.6231 0005697 325.7688 154.5427 15.49678367491472
+HST
+1 20580U 90037B   24017.50000000  .00001500  00000+0  10000-3 0  9991
+2 20580  28.4699 265.1234 0002500 100.0000 260.0000 15.09000000  1000
+GPS BIIA-10 (PRN 32)
+1 20959U 90103A   24017.50000000 -.00000050  00000+0  00000+0 0  9995
+2 20959  54.8500 100.0000 0150000  45.0000 315.0000  2.00565432 10000
 STARLINK-1007
 1 44713U 19074A   24017.50000000  .00000678  00000+0  67856-4 0  9995
 2 44713  53.0543 178.9876 0001423  87.9752 272.1462 15.06394628230052
@@ -100,14 +112,23 @@ def check_visibility(sat, t, ground_lat, ground_lon):
 
 @st.cache_resource
 def load_satellites():
-    """Downloads and parses satellite TLE data without local file caching."""
+    """
+    Downloads and parses satellite TLE data with priority:
+    1. Local 'active.txt' (Binary read)
+    2. CelesTrak URL (Live download)
+    3. Fallback String (Hardcoded)
+    """
     lines = []
+    source = "Unknown"
+
     # 1. Try Local File (Pre-cached)
     if os.path.exists("active.txt"):
         try:
             with open("active.txt", "rb") as f:
                 lines = [line for line in f]
-        except Exception: pass
+            source = "Local File"
+        except Exception as e:
+            print(f"Local file read error: {e}")
 
     # 2. Try Live Download (if no local file)
     if not lines:
@@ -116,17 +137,19 @@ def load_satellites():
             req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urlopen(req, timeout=30) as response:
                 lines = [line for line in response.readlines()]
+            source = "CelesTrak (Live)"
         except Exception as e:
             st.warning(f"⚠️ Network issue detected ({e}). Switching to OFFLINE mode.")
             lines = [line.encode('ascii') for line in FALLBACK_TLE.strip().splitlines()]
+            source = "Fallback Data"
 
-    # Robustness Check
+    # Robustness Check: Ensure bytes
     if lines and isinstance(lines[0], str):
         lines = [l.encode('ascii') for l in lines]
         
     ts = load.timescale(builtin=True)
     satellites = list(parse_tle_file(lines, ts))
-    return satellites
+    return satellites, source
 
 @st.cache_data
 def get_geometry():
@@ -141,19 +164,18 @@ def get_geometry():
     z_earth = R_EARTH * np.cos(theta)
 
     # 2. Earth Texture (Blue Marble)
-    # Use Wikimedia generic Blue Marble image
-    img_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Blue_Marble_2002.png/480px-Blue_Marble_2002.png"
-    try:
-        with urlopen(img_url, timeout=5) as response:
-            img = Image.open(response)
-            # Resize to match mesh grid (N, N)
-            img = img.resize((N, N))
-            # Convert to grayscale for height/color mapping
-            img_gray = img.convert('L')
-            surface_color = np.array(img_gray) / 255.0
-    except Exception:
-        # Fallback to solid color if image fails
-        surface_color = np.zeros_like(x_earth)
+    surface_color = None
+    if HAS_PILLOW:
+        img_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Blue_Marble_2002.png/480px-Blue_Marble_2002.png"
+        try:
+            req = Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urlopen(req, timeout=10) as response:
+                img = Image.open(response)
+                img = img.resize((N, N))
+                img_gray = img.convert('L')
+                surface_color = np.array(img_gray) / 255.0
+        except Exception:
+            pass # surface_color remains None
 
     # 3. Coastlines
     coast_url = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_coastline.geojson"
@@ -205,7 +227,8 @@ def process_positions(_satellites):
 # --- Main Execution ---
 
 with st.spinner("Initializing Satellite Data..."):
-    satellites = load_satellites()
+    satellites, source = load_satellites()
+    
     if not satellites: st.stop()
     
     # Unpack updated geometry tuple
@@ -217,6 +240,8 @@ if df.empty: st.stop()
 # --- Sidebar Controls ---
 
 st.sidebar.header("Target Selection")
+st.sidebar.info(f"Data Source: {source} ({len(df)} sats)")
+
 if 'selected_sat_name' not in st.session_state:
     sl_match = df[df['Name'].str.contains('STARLINK')]
     st.session_state.selected_sat_name = sl_match.iloc[0]['Name'] if not sl_match.empty else df.iloc[0]['Name']
@@ -269,17 +294,26 @@ if selected_name:
     # --- Visualization ---
     fig = go.Figure()
     
-    # Realistic Earth Surface
-    # Maps the image grayscale values to a color scale: Dark Blue -> Green -> Brown -> White
-    fig.add_trace(go.Surface(
-        x=x_earth, y=y_earth, z=z_earth,
-        surfacecolor=surface_color,
-        colorscale=[[0, '#000080'], [0.1, '#1E90FF'], [0.2, '#228B22'], [0.5, '#8B4513'], [1, '#FFFFFF']],
-        showscale=False,
-        cmin=0, cmax=1,
-        hoverinfo='skip',
-        name='Earth'
-    ))
+    # Earth Surface Layer
+    if surface_color is not None:
+        # Photorealistic Texture
+        fig.add_trace(go.Surface(
+            x=x_earth, y=y_earth, z=z_earth,
+            surfacecolor=surface_color,
+            colorscale=[[0, '#000080'], [0.1, '#1E90FF'], [0.2, '#228B22'], [0.5, '#8B4513'], [1, '#FFFFFF']],
+            showscale=False,
+            cmin=0, cmax=1,
+            hoverinfo='skip',
+            name='Earth'
+        ))
+    else:
+        # Fallback to Lighter Blue Sphere (Fixed Black Globe issue)
+        fig.add_trace(go.Surface(
+            x=x_earth, y=y_earth, z=z_earth,
+            colorscale=[[0, 'royalblue'], [1, 'royalblue']],
+            showscale=False, opacity=1.0, hoverinfo='skip', name='Earth',
+            lighting=dict(ambient=0.6, diffuse=0.5, roughness=0.1)
+        ))
 
     if coastlines[0]: 
         fig.add_trace(go.Scatter3d(x=coastlines[0], y=coastlines[1], z=coastlines[2], 
