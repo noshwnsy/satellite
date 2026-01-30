@@ -139,12 +139,9 @@ def load_satellites():
                 lines = [line for line in response.readlines()]
             source = "CelesTrak (Live)"
         except Exception as e:
-            st.warning(f"⚠️ Could not connect to CelesTrak: {e}")
-
-    # 3. Use Fallback
-    if not lines:
-        source = "Emergency Fallback"
-        lines = [line.encode('ascii') for line in FALLBACK_TLE.strip().splitlines()]
+            st.warning(f"⚠️ Network issue detected ({e}). Switching to OFFLINE mode.")
+            lines = [line.encode('ascii') for line in FALLBACK_TLE.strip().splitlines()]
+            source = "Fallback Data"
 
     # Final Validation
     if not lines or len(lines) < 3:
@@ -190,8 +187,8 @@ def get_geometry():
     xc, yc, zc = [], [], []
     try:
         with urlopen(coast_url, timeout=5) as response:
-            coastlines = json.load(response)
-        for feature in coastlines['features']:
+            coastlines_json = json.load(response)
+        for feature in coastlines_json['features']:
             coords = feature['geometry']['coordinates']
             if feature['geometry']['type'] == 'LineString': segments = [coords]
             elif feature['geometry']['type'] == 'MultiLineString': segments = coords
@@ -324,8 +321,8 @@ if selected_name:
         ))
 
     # SAFE CHECK FOR COASTLINES to avoid Numpy array ambiguity
-    if len(coastlines[0]) > 0: 
-        fig.add_trace(go.Scatter3d(x=coastlines[0], y=coastlines[1], z=coastlines[2], 
+    if len(xc) > 0: 
+        fig.add_trace(go.Scatter3d(x=xc, y=yc, z=zc, 
             mode='lines', line=dict(color='cyan', width=2), hoverinfo='skip', name='Coasts'))
     
     colors = {'Starlink': '#32CD32', 'OneWeb': '#FFD700', 'GPS': '#FF4500', 'Beidou': '#FF1493', 
